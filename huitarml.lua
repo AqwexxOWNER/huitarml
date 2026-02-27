@@ -1,36 +1,53 @@
 --[[
-    huita.rml | TRIDENT SURVIVAL V5 
-    Optimized for Mobile (Codex/Delta)
+    huita.rml | TRIDENT V5 PRIVATE ULTIMATE
+    - Wallbang (Shoot through mountains)
+    - Silent Aim + FOV Tracers
+    - Chams & ESP (Players, Totems, Items)
+    - Speed Bypass (Velocity Method)
+    - Long Neck & Hitboxes
 ]]
 
--- 1. Ожидание загрузки игры
 if not game:IsLoaded() then game.Loaded:Wait() end
 
--- 2. Защита от повторного запуска
-if _G.HuitaLoaded then return end
-_G.HuitaLoaded = true
-
--- 3. Библиотека интерфейса (Легкая версия)
-local KavoLib = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
-local Window = KavoLib.CreateLib("huita.rml | TRIDENT V5", "Midnight")
-
--- 4. Переменные
 local Player = game.Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
+-- ГЛОБАЛЬНЫЕ НАСТРОЙКИ
 _G.SilentAim = false
-_G.AutoShot = false
-_G.FOV_Radius = 100
-_G.FOV_Visible = false
+_G.Wallbang = false
+_G.FOV_Radius = 150
+_G.FOV_Visible = true
+_G.ChamsEnabled = false
+_G.HitboxEnabled = false
+_G.HitboxSize = 5
+_G.LongNeck = false
 _G.SpeedBypass = false
-_G.SpeedValue = 16
+_G.SpeedValue = 45
 _G.ESP_Items = false
 _G.ESP_Totems = false
 
--- 5. Функции поиска цели
-local function GetClosestTarget()
+-- ==========================================
+-- [ РИСОВАНИЕ (FOV & LINES) ]
+-- ==========================================
+
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 1
+FOVCircle.Color = Color3.fromRGB(0, 255, 255)
+FOVCircle.Filled = false
+FOVCircle.Transparency = 1
+
+local TargetLine = Drawing.new("Line")
+TargetLine.Thickness = 1
+TargetLine.Color = Color3.fromRGB(255, 0, 0)
+TargetLine.Transparency = 1
+
+-- ==========================================
+-- [ ЛОГИКА АИМА И ОБХОДА (METATABLE) ]
+-- ==========================================
+
+local function GetTarget()
     local target = nil
     local dist = _G.FOV_Radius
     for _, v in pairs(game.Players:GetPlayers()) do
@@ -38,144 +55,196 @@ local function GetClosestTarget()
             local pos, vis = Camera:WorldToViewportPoint(v.Character.Head.Position)
             if vis then
                 local mag = (Vector2.new(pos.X, pos.Y) - UIS:GetMouseLocation()).Magnitude
-                if mag < dist then
-                    target = v.Character.Head
-                    dist = mag
-                end
+                if mag < dist then target = v.Character.Head; dist = mag end
             end
         end
     end
     return target
 end
 
--- 6. Отрисовка FOV
-local FOVCircle = Drawing.new("Circle")
-FOVCircle.Thickness = 1
-FOVCircle.Filled = false
-FOVCircle.Color = Color3.fromRGB(0, 255, 255)
-FOVCircle.Transparency = 1
-
--- 7. Метаметод Байпасс (Silent Aim)
 local mt = getrawmetatable(game)
 local oldNamecall = mt.__namecall
 local oldIndex = mt.__index
 setreadonly(mt, false)
 
+-- Обход проверки скорости и высоты
+mt.__index = newcclosure(function(t, k)
+    if not checkcaller() and t:IsA("Humanoid") and t.Parent == Player.Character then
+        if k == "WalkSpeed" then return 16 end
+        if k == "JumpPower" then return 50 end
+    end
+    return oldIndex(t, k)
+end)
+
+-- Silent Aim & Wallbang Bypass
 mt.__namecall = newcclosure(function(self, ...)
     local method = getnamecallmethod()
     local args = {...}
-    if _G.SilentAim and (method == "Raycast" or method == "FindPartOnRayWithIgnoreList") then
-        local t = GetClosestTarget()
+    
+    if _G.SilentAim and (method == "Raycast" or method == "FindPartOnRay") then
+        local t = GetTarget()
         if t then
             if method == "Raycast" then
                 args[2] = (t.Position - args[1]).Unit * 1000
-            else
-                args[1] = Ray.new(Camera.CFrame.Position, (t.Position - Camera.CFrame.Position).Unit * 1000)
+                -- WALLBANG: Игнорируем объекты карты (горы, камни)
+                if _G.Wallbang then
+                    local params = RaycastParams.new()
+                    params.FilterType = Enum.RaycastFilterType.Exclude
+                    params.FilterDescendantsInstances = {workspace:FindFirstChild("Map"), workspace:FindFirstChild("Buildings")}
+                    args[3] = params
+                end
             end
             return oldNamecall(self, unpack(args))
         end
     end
     return oldNamecall(self, ...)
 end)
-
-mt.__index = newcclosure(function(t, k)
-    if not checkcaller() and t:IsA("Humanoid") and t.Parent == Player.Character then
-        if k == "WalkSpeed" then return 16 end
-    end
-    return oldIndex(t, k)
-end)
 setreadonly(mt, true)
 
--- 8. Создание вкладок
-local Combat = Window:NewTab("Combat")
-local CombatSec = Combat:NewSection("Silent Aim & FOV")
+-- ==========================================
+-- [ КАСТОМНЫЙ НЕОНОВЫЙ ИНТЕРФЕЙС ]
+-- ==========================================
 
-CombatSec:NewToggle("Enable Silent Aim", "Perfect hits", function(state)
-    _G.SilentAim = state
-end)
+local ScreenGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+local Main = Instance.new("Frame", ScreenGui)
+Main.Size = UDim2.new(0, 220, 0, 350)
+Main.Position = UDim2.new(0.5, -110, 0.5, -175)
+Main.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+Main.Visible = false
+Main.Active = true
+Main.Draggable = true
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+Instance.new("UIStroke", Main).Color = Color3.fromRGB(0, 255, 255)
 
-CombatSec:NewToggle("Auto Shot", "Fires automatically", function(state)
-    _G.AutoShot = state
-end)
+local Holder = Instance.new("ScrollingFrame", Main)
+Holder.Size = UDim2.new(1, 0, 0.85, 0)
+Holder.Position = UDim2.new(0, 0, 0.12, 0)
+Holder.BackgroundTransparency = 1
+Holder.ScrollBarThickness = 0
+local Layout = Instance.new("UIListLayout", Holder)
+Layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+Layout.Padding = UDim.new(0, 5)
 
-CombatSec:NewToggle("Show FOV Circle", "Visible radius", function(state)
-    _G.FOV_Visible = state
-end)
+local function AddToggle(name, callback)
+    local B = Instance.new("TextButton", Holder)
+    B.Size = UDim2.new(0.9, 0, 0, 32)
+    B.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    B.Text = name .. ": OFF"
+    B.TextColor3 = Color3.fromRGB(150, 150, 150)
+    B.Font = Enum.Font.Gotham
+    Instance.new("UICorner", B)
+    local act = false
+    B.MouseButton1Click:Connect(function()
+        act = not act
+        B.Text = name .. (act and ": ON" or ": OFF")
+        B.TextColor3 = act and Color3.fromRGB(0, 255, 255) or Color3.fromRGB(150, 150, 150)
+        callback(act)
+    end)
+end
 
-CombatSec:NewSlider("FOV Radius", "Adjust aim area", 500, 30, function(s)
-    _G.FOV_Radius = s
-end)
+-- Кнопки
+AddToggle("Silent Aim", function(v) _G.SilentAim = v end)
+AddToggle("Wallbang (Mountains)", function(v) _G.Wallbang = v end)
+AddToggle("Chams (Wallhack)", function(v) _G.ChamsEnabled = v end)
+AddToggle("Head Hitbox", function(v) _G.HitboxEnabled = v end)
+AddToggle("Long Neck", function(v) _G.LongNeck = v end)
+AddToggle("Speed Bypass", function(v) _G.SpeedBypass = v end)
+AddToggle("ESP Items/Totems", function(v) _G.ESP_Items = v; _G.ESP_Totems = v end)
 
-local Visuals = Window:NewTab("Visuals")
-local VisSec = Visuals:NewSection("ESP World")
+-- Мобильные кнопки управления
+local Rml = Instance.new("TextButton", ScreenGui)
+Rml.Size = UDim2.new(0, 45, 0, 45)
+Rml.Position = UDim2.new(0, 10, 0.4, 0)
+Rml.Text = "RML"
+Rml.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+Instance.new("UICorner", Rml).CornerRadius = UDim.new(1, 0)
+Rml.MouseButton1Click:Connect(function() Main.Visible = not Main.Visible end)
 
-VisSec:NewToggle("Show Items", "Highlight guns/armor", function(state)
-    _G.ESP_Items = state
-end)
+local Slide = Instance.new("TextButton", ScreenGui)
+Slide.Size = UDim2.new(0, 60, 0, 60)
+Slide.Position = UDim2.new(0.85, -30, 0.5, -30)
+Slide.Text = "SLIDE"
+Slide.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Slide.TextColor3 = Color3.fromRGB(0, 255, 255)
+Instance.new("UICorner", Slide).CornerRadius = UDim.new(1, 0)
 
-VisSec:NewToggle("Show Totems", "Highlight bases", function(state)
-    _G.ESP_Totems = state
-end)
+-- ==========================================
+-- [ ГЛАВНЫЙ ЦИКЛ ОБНОВЛЕНИЯ ]
+-- ==========================================
 
-local Misc = Window:NewTab("Misc")
-local MiscSec = Misc:NewSection("Movement")
-
-MiscSec:NewToggle("Speed Bypass", "Unlock WalkSpeed", function(state)
-    _G.SpeedBypass = state
-end)
-
-MiscSec:NewSlider("Speed Value", "Max safe speed ~80", 120, 16, function(s)
-    _G.SpeedValue = s
-end)
-
--- 9. Циклы и Мобильные кнопки
 RunService.RenderStepped:Connect(function()
+    -- FOV & Lines
+    local t = GetTarget()
     FOVCircle.Visible = _G.FOV_Visible
     FOVCircle.Radius = _G.FOV_Radius
     FOVCircle.Position = UIS:GetMouseLocation()
-    
+
+    if t and _G.SilentAim then
+        local tPos = Camera:WorldToViewportPoint(t.Position)
+        TargetLine.Visible = true
+        TargetLine.From = UIS:GetMouseLocation()
+        TargetLine.To = Vector2.new(tPos.X, tPos.Y)
+    else
+        TargetLine.Visible = false
+    end
+
+    -- Chams & Hitboxes
+    for _, p in pairs(game.Players:GetPlayers()) do
+        if p ~= Player and p.Character then
+            -- Chams
+            if _G.ChamsEnabled then
+                if not p.Character:FindFirstChild("Highlight") then
+                    Instance.new("Highlight", p.Character).FillColor = Color3.fromRGB(0, 255, 255)
+                end
+            elseif p.Character:FindFirstChild("Highlight") then
+                p.Character.Highlight:Destroy()
+            end
+            -- Hitbox
+            if _G.HitboxEnabled and p.Character:FindFirstChild("Head") then
+                p.Character.Head.Size = Vector3.new(_G.HitboxSize, _G.HitboxSize, _G.HitboxSize)
+                p.Character.Head.Transparency = 0.5
+                p.Character.Head.CanCollide = false
+            end
+        end
+    end
+
+    -- Speed Bypass (Translate Method)
     if _G.SpeedBypass and Player.Character and Player.Character:FindFirstChild("Humanoid") then
-        Player.Character.Humanoid.WalkSpeed = _G.SpeedValue
+        local hum = Player.Character.Humanoid
+        if hum.MoveDirection.Magnitude > 0 then
+            Player.Character:TranslateBy(hum.MoveDirection * (_G.SpeedValue / 100))
+        end
     end
-    
-    if _G.SilentAim and _G.AutoShot then
-        if GetClosestTarget() then mouse1click() end
+
+    -- Long Neck
+    if Player.Character and Player.Character:FindFirstChild("Neck", true) then
+        local neck = Player.Character:FindFirstChild("Neck", true)
+        neck.C0 = _G.LongNeck and CFrame.new(0, 1.2, 0) * CFrame.new(0, 10, 0) or CFrame.new(0, 1.2, 0)
     end
 end)
 
--- Кнопка RML для мобилок (Открытие меню)
-local ScreenGui = Instance.new("ScreenGui", game.CoreGui)
-local OpenBtn = Instance.new("TextButton", ScreenGui)
-OpenBtn.Size = UDim2.new(0, 45, 0, 45)
-OpenBtn.Position = UDim2.new(0, 10, 0.4, 0)
-OpenBtn.Text = "RML"
-OpenBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-OpenBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-local Corner = Instance.new("UICorner", OpenBtn)
-Corner.CornerRadius = UDim.new(1, 0)
-
-OpenBtn.MouseButton1Click:Connect(function()
-    -- Эмуляция нажатия RightShift для открытия Kavo UI
-    game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.RightShift, false, game)
-end)
-
--- Кнопка SLIDE
-local SlideBtn = Instance.new("TextButton", ScreenGui)
-SlideBtn.Size = UDim2.new(0, 70, 0, 70)
-SlideBtn.Position = UDim2.new(0.85, -35, 0.5, -35)
-SlideBtn.Text = "SLIDE"
-SlideBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-SlideBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-local Corner2 = Instance.new("UICorner", SlideBtn)
-Corner2.CornerRadius = UDim.new(1, 0)
-
-SlideBtn.MouseButton1Click:Connect(function()
-    if _G.SpeedBypass and Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
+-- Slide Button Logic
+Slide.MouseButton1Click:Connect(function()
+    if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
         local hrp = Player.Character.HumanoidRootPart
-        Player.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        hrp.Velocity = hrp.CFrame.LookVector * (_G.SpeedValue * 2.5)
-        Player.Character.Humanoid.PlatformStand = true
-        task.wait(0.35)
-        Player.Character.Humanoid.PlatformStand = false
+        local v = Instance.new("BodyVelocity", hrp)
+        v.MaxForce = Vector3.new(1e5, 0, 1e5)
+        v.Velocity = hrp.CFrame.LookVector * 120
+        game.Debris:AddItem(v, 0.3)
+    end
+end)
+
+-- ESP World Items
+task.spawn(function()
+    while task.wait(5) do
+        if _G.ESP_Items or _G.ESP_Totems then
+            for _, obj in pairs(workspace:GetChildren()) do
+                if (_G.ESP_Totems and obj.Name:find("Totem")) or (_G.ESP_Items and obj.Name:find("Gun")) then
+                    if not obj:FindFirstChild("Highlight") then
+                        Instance.new("Highlight", obj).FillColor = Color3.fromRGB(255, 0, 0)
+                    end
+                end
+            end
+        end
     end
 end)
